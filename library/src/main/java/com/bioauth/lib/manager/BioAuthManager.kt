@@ -175,13 +175,18 @@ class BioAuthManager private constructor( private val context: Context, private 
 
     fun signature() = Signature.getInstance(_alg)
 
-    fun startListening(cryptoObject: FingerprintManagerCompat.CryptoObject, callBack: FingerprintManagerCompat.AuthenticationCallback ) {
+    fun startListening( callBack: FingerprintManagerCompat.AuthenticationCallback ) {
         if (!isFingerprintAuthAvailable()) {
             return
         }
         cancellationSignal = CancellationSignal()
         selfCancelled = false
-        fingerprintManager.authenticate(cryptoObject, 0, cancellationSignal, callBack, null)
+        val co = this.cryptoObject
+        when(co){
+            is BioAuthManager.CryptoObjectResult.Error -> callBack.onAuthenticationError(400, "CryptoObject was not initialized")
+            is BioAuthManager.CryptoObjectResult.Result -> fingerprintManager.authenticate(co.cryptoObject, 0, cancellationSignal, callBack, null)
+        }
+
     }
 
     fun stopListening() {

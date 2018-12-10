@@ -10,6 +10,9 @@ buildscript {
 apply plugin: 'com.android.library'
 apply plugin: 'com.github.dcendents.android-maven'
 apply plugin: 'com.jfrog.bintray'
+apply plugin: 'kotlin-android'
+
+
 ext {
     bintrayRepo = 'BioAuth'
     bintrayName = 'BioAuth'
@@ -41,16 +44,6 @@ android {
         targetSdkVersion 28
         versionCode 1
         versionName "1.0"
-
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
-
-    }
-
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-        }
     }
 
 }
@@ -146,3 +139,4 @@ bintray {
         }
     }
 }
+
