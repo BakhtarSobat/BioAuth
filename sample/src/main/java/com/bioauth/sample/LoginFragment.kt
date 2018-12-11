@@ -103,6 +103,12 @@ class LoginFragment: Fragment() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        bioAuthManager.stopListening()
+
+    }
+
     interface Listener{
         fun loggedIn()
     }

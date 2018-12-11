@@ -275,6 +275,5 @@ class BioAuthManager private constructor( private val context: Context, private 
 
 }
 
-private fun PublicKey.toPEM() = "-----BEGIN PUBLIC KEY-----\n${String(this.encoded.encodeBase64PEM(), Charsets.US_ASCII)}\n-----END PUBLIC KEY-----"
-private fun ByteArray.encodeBase64PEM() = this.encodeBase64()
+private fun PublicKey.toPEM() = "-----BEGIN PUBLIC KEY-----\n${String(this.encoded.encodeBase64(), Charsets.US_ASCII)}\n-----END PUBLIC KEY-----"
 private fun ByteArray.encodeBase64(): ByteArray = Base64.encode(this, Base64.DEFAULT)

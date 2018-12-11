@@ -11,7 +11,13 @@ import java.security.Signature
 import java.security.SignatureException
 
 
-class JwtObject: SignableObject {
+class JwtObject: SignableObject() {
+    override fun getChallenge(): String {
+        val header = headerEncoded()
+        val body = bodyEncoded()
+        val toSign  = "$header.$body"
+        return toSign
+    }
 
 
     private val header = HashMap<String, String>()
@@ -46,9 +52,7 @@ class JwtObject: SignableObject {
 
     @RequiresApi(Build.VERSION_CODES.M)
     override fun sign(signature: Signature): BioAuthManager.SigningResult {
-        val header = headerEncoded()
-        val body = bodyEncoded()
-        val toSign  = "$header.$body"
+        val toSign  = getChallenge()
         return try {
             signature.update(toSign.toByteArray(Charsets.UTF_8))
             val signatureBytes = signature.sign()
