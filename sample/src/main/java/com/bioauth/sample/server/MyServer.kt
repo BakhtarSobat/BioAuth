@@ -66,4 +66,8 @@ class MyServer(context: Context) {
             null
         }
     }
+
+    fun verifyJwt(signed: String): Boolean {
+        return true//No implementation
+    }
 }

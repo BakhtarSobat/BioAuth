@@ -11,6 +11,7 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import com.bioauth.lib.jwt.JwtObject
 import com.bioauth.lib.manager.BioAuthManager
 import com.bioauth.lib.manager.BioAuthSettings
 import com.bioauth.sample.server.MyServer
@@ -72,7 +73,6 @@ class LoginFragment: Fragment() {
         val stringToSign = "$challenge$SALT$nonce"
         val response = bioAuthManager.signChallenge(MySignableObject(stringToSign))
         when(response){
-
             BioAuthManager.SigningResult.BiometricKeyChanged -> {
                 Toast.makeText(activity, "Fingerprint changed, please enroll again", Toast.LENGTH_LONG).show()
                 bioAuthManager.enableFingerPrint(BioAuthSettings.BiometricStatus.Unknown)
@@ -83,6 +83,35 @@ class LoginFragment: Fragment() {
             }
             is BioAuthManager.SigningResult.Result -> {
                 val verified: Boolean  = myServer.verify(response.signed, nonce)
+                if(verified){
+                    Handler().postDelayed({listener?.loggedIn()}, 500)
+                } else {
+                    fingerprintIcon?.setImageResource(R.drawable.ic_error)
+                    Toast.makeText(activity, "Unable to verify challenge", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun checkingFingerprintJWT() {
+        fingerprintLabel?.text = "Authentication with the server..."
+        fingerprintIcon?.setImageResource(R.drawable.ic_check)
+        val challenge = myServer.getChallenge()
+        val jwt = JwtObject.createForEC256().apply {
+            addClaim("jti", challenge)
+        }
+        val response = bioAuthManager.signChallenge(jwt)
+        when(response){
+            BioAuthManager.SigningResult.BiometricKeyChanged -> {
+                Toast.makeText(activity, "Fingerprint changed, please enroll again", Toast.LENGTH_LONG).show()
+                bioAuthManager.enableFingerPrint(BioAuthSettings.BiometricStatus.Unknown)
+            }
+            BioAuthManager.SigningResult.Error -> {
+                Toast.makeText(activity, "Error while creating response, please enroll again", Toast.LENGTH_LONG).show()
+                bioAuthManager.enableFingerPrint(BioAuthSettings.BiometricStatus.Unknown)
+            }
+            is BioAuthManager.SigningResult.Result -> {
+                val verified: Boolean  = myServer.verifyJwt(response.signed)
                 if(verified){
                     Handler().postDelayed({listener?.loggedIn()}, 500)
                 } else {

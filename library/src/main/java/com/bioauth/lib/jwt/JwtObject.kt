@@ -25,13 +25,13 @@ class JwtObject: SignableObject() {
     private val gson by lazy { GsonBuilder().disableHtmlEscaping().create() }
 
     companion object {
-        fun createForEC521( signature: Signature) = JwtObject().apply {
+        fun createForEC521() = JwtObject().apply {
             header["alg"] = "ES512"
             header["typ"] = "JWT"
 
         }
 
-        fun createForEC256( signature: Signature) = JwtObject().apply {
+        fun createForEC256() = JwtObject().apply {
             header["alg"] = "ES256"
             header["typ"] = "JWT"
         }

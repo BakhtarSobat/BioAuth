@@ -1,6 +1,7 @@
 package com.bioauth.sample
 
 import android.os.Bundle
+import android.security.keystore.KeyProperties
 import android.support.v4.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
@@ -11,6 +12,7 @@ import android.widget.Toast
 import com.bioauth.lib.manager.BioAuthManager
 import com.bioauth.lib.manager.BioAuthSettings
 import com.bioauth.sample.server.MyServer
+import java.security.spec.ECGenParameterSpec
 
 class LoggedInFragment: Fragment() {
     private var listener: Listener? = null
@@ -27,8 +29,13 @@ class LoggedInFragment: Fragment() {
             setOnClickListener {
                 handleEnrollFingerprint()
             }
-            this.isEnabled = bioAuthManager.isHardwareDetected() && bioAuthManager.isFingerprintAuthAvailable() && bioAuthManager.hasEnrolledFingerprints() && bioAuthManager.isSupportedSDK()
-            val text = if(bioAuthManager.isFingerEnabled() == BioAuthSettings.BiometricStatus.Enabled) "Disable" else "Enroll"
+            this.isEnabled = bioAuthManager.run {
+                        isHardwareDetected() &&
+                        isFingerprintAuthAvailable() &&
+                        hasEnrolledFingerprints() &&
+                        isSupportedSDK()
+            }
+            val text = if (bioAuthManager.isFingerEnabled() == BioAuthSettings.BiometricStatus.Enabled) "Disable" else "Enroll"
             this.setText(text)
 
         }
@@ -38,11 +45,11 @@ class LoggedInFragment: Fragment() {
             }
         }
 
-        val text = if(!bioAuthManager.isHardwareDetected()){
+        val text = if (!bioAuthManager.isHardwareDetected()) {
             "No Hardware"
-        } else if(!bioAuthManager.hasEnrolledFingerprints() ){
+        } else if (!bioAuthManager.hasEnrolledFingerprints()) {
             "Please enroll at least one fingerprint"
-        } else if(!bioAuthManager.isSupportedSDK()){
+        } else if (!bioAuthManager.isSupportedSDK()) {
             "SDK not supported"
         } else {
             "Welcome"
@@ -53,14 +60,16 @@ class LoggedInFragment: Fragment() {
 
     private fun handleEnrollFingerprint() {
         val result = bioAuthManager.enroll()
-        when(result){
+        when (result) {
 
-            BioAuthManager.PublicKeyPemResult.Error -> {Toast.makeText(context, "Couldn't enroll fingerprint", Toast.LENGTH_LONG).show()}
+            BioAuthManager.PublicKeyPemResult.Error -> {
+                Toast.makeText(context, "Couldn't enroll fingerprint", Toast.LENGTH_LONG).show()
+            }
             is BioAuthManager.PublicKeyPemResult.Result -> {
                 sendPublicKey(result.publicKey)
                 bioAuthManager.enableFingerPrint(BioAuthSettings.BiometricStatus.Enabled)
             }
-        }.let {  }
+        }.let { }
     }
 
     private fun sendPublicKey(publicKey: String) {
@@ -71,7 +80,6 @@ class LoggedInFragment: Fragment() {
     interface Listener {
         fun loggedOut()
     }
-
 
     companion object {
         fun createFragment(listener: LoggedInFragment.Listener) = LoggedInFragment().apply {
