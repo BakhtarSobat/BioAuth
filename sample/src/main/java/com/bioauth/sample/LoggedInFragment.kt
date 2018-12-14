@@ -28,6 +28,7 @@ class LoggedInFragment: Fragment() {
         v.findViewById<Button>(R.id.frag_logged_fingerprint).apply {
             setOnClickListener {
                 handleEnrollFingerprint()
+                updateText()
             }
             this.isEnabled = bioAuthManager.run {
                         isHardwareDetected() &&
@@ -35,8 +36,7 @@ class LoggedInFragment: Fragment() {
                         hasEnrolledFingerprints() &&
                         isSupportedSDK()
             }
-            val text = if (bioAuthManager.isFingerEnabled() == BioAuthSettings.BiometricStatus.Enabled) "Disable" else "Enroll"
-            this.setText(text)
+            updateText()
 
         }
         v.findViewById<Button>(R.id.frag_logged_logout).apply {
@@ -58,7 +58,16 @@ class LoggedInFragment: Fragment() {
         return v
     }
 
+    private fun Button.updateText() {
+        val text = if (bioAuthManager.isFingerEnabled() == BioAuthSettings.BiometricStatus.Enabled) "Disable" else "Enroll"
+        this.text = text
+    }
+
     private fun handleEnrollFingerprint() {
+        if (bioAuthManager.isFingerEnabled() == BioAuthSettings.BiometricStatus.Enabled){
+            bioAuthManager.resetAll()
+            return
+        }
         val result = bioAuthManager.enroll()
         when (result) {
 
