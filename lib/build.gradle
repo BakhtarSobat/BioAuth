@@ -2,10 +2,6 @@ buildscript {
     repositories {
         jcenter()
     }
-    dependencies {
-        classpath 'com.github.dcendents:android-maven-gradle-plugin:1.4.1'
-        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.7.3'
-    }
 }
 apply plugin: 'com.android.library'
 apply plugin: 'com.github.dcendents.android-maven'
@@ -14,10 +10,12 @@ apply plugin: 'kotlin-android'
 
 
 ext {
-    bintrayRepo = 'BioAuth'
-    bintrayName = 'BioAuth'
+    libraryVersion = '1.0.3'
 
-    publishedGroupId = 'com.bioauth'
+    bintrayRepo = 'maven'
+    bintrayName = 'bioauth'
+
+    publishedGroupId = 'com.bioauth.lib'
     libraryName = 'BioAuth'
     artifact = 'bioauth'
 
@@ -26,7 +24,6 @@ ext {
     siteUrl = 'https://github.com/BakhtarSobat/BioAuth'
     gitUrl = 'https://github.com/BakhtarSobat/BioAuth.git'
 
-    libraryVersion = '0.9.1'
 
     developerId = 'bsobat'
     developerName = 'Bakhtar Sobat'
@@ -123,6 +120,7 @@ bintray {
     key = properties.getProperty("bintray.apikey")
 
     configurations = ['archives']
+
     pkg {
         repo = bintrayRepo
         name = bintrayName
@@ -132,7 +130,7 @@ bintray {
         licenses = allLicenses
         dryRun = false
         publish = true
-        override = false
+        override = true
         publicDownloadNumbers = true
         version {
             desc = libraryDescription
