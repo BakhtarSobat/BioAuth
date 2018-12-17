@@ -10,7 +10,7 @@ apply plugin: 'kotlin-android'
 
 
 ext {
-    libraryVersion = '1.0.3'
+    libraryVersion = '1.0.4'
 
     bintrayRepo = 'maven'
     bintrayName = 'bioauth'
