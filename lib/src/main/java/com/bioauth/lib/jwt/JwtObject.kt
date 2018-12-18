@@ -59,7 +59,7 @@ class JwtObject: SignableObject() {
             val rsByteArrayLength = ECDSA.getSignatureByteArrayLength(this.header["alg"])
             val jwsSignature = ECDSA.transcodeSignatureToConcat(signatureBytes, rsByteArrayLength)
             val jwsSignedStr = jwsSignature.base64UrlEncode()
-            BioAuthManager.SigningResult.Result("$header.$body.$jwsSignedStr")
+            BioAuthManager.SigningResult.Result("$toSign.$jwsSignedStr")
         } catch (e: KeyPermanentlyInvalidatedException){
             BioAuthManager.SigningResult.BiometricKeyChanged
         } catch (e: KeyStoreException){
