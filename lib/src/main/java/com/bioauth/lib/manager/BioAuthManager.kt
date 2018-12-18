@@ -19,11 +19,37 @@ import java.security.spec.ECGenParameterSpec
 
 private const val ANDROID_KEY_STORE = "AndroidKeyStore"
 
-class BioAuthManager private constructor( private val context: Context, private val settings: BioAuthSettings) {
-    lateinit var _ecGenParameterSpec: ECGenParameterSpec
-    lateinit var _digest: String
-    lateinit var _alg: String
-    lateinit var _keyStoreName: String
+interface IBioAuthManager {
+    @RequiresApi(Build.VERSION_CODES.M)
+    fun isHardwareDetected(): Boolean
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    fun hasEnrolledFingerprints(): Boolean
+
+    fun isFingerprintAuthAvailable(): Boolean
+    fun isFingerEnabled(): BioAuthSettings.BiometricStatus
+    fun enableFingerPrint(status: BioAuthSettings.BiometricStatus)
+    fun savePublicKeyId(publicKeyId: String)
+    fun getPublicKeyId(): String?
+    @RequiresApi(Build.VERSION_CODES.M)
+    fun enroll(): BioAuthManager.PublicKeyPemResult
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    fun signChallenge(challenge: SignableObject): BioAuthManager.SigningResult
+
+    fun startListening(callBack: FingerprintManagerCompat.AuthenticationCallback)
+    fun stopListening()
+    fun getPublicKey(): BioAuthManager.PublicKeyResult
+    fun isSupportedSDK(): Boolean
+    fun checkSelfPermission(): Boolean
+    fun resetAll()
+}
+
+class BioAuthManager private constructor(private val context: Context, private val settings: BioAuthSettings) : IBioAuthManager {
+    private lateinit var _ecGenParameterSpec: ECGenParameterSpec
+    private lateinit var _digest: String
+    private lateinit var _alg: String
+    private lateinit var _keyStoreName: String
 
     private val keyGenerator by lazy { KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")}
 
@@ -35,16 +61,16 @@ class BioAuthManager private constructor( private val context: Context, private 
     private val cryptoObject  by lazy { initCryptoObject() }
 
     @RequiresApi(Build.VERSION_CODES.M)
-    fun isHardwareDetected(): Boolean {
+    override fun isHardwareDetected(): Boolean {
         return fingerprintManager.isHardwareDetected
     }
     @RequiresApi(Build.VERSION_CODES.M)
-    fun hasEnrolledFingerprints(): Boolean {
+    override fun hasEnrolledFingerprints(): Boolean {
         return fingerprintManager.hasEnrolledFingerprints()
     }
 
 
-    fun isFingerprintAuthAvailable(): Boolean {
+    override fun isFingerprintAuthAvailable(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             isHardwareDetected() && hasEnrolledFingerprints()
         } else {
@@ -53,7 +79,7 @@ class BioAuthManager private constructor( private val context: Context, private 
     }
 
 
-    fun isFingerEnabled(): BioAuthSettings.BiometricStatus{
+    override fun isFingerEnabled(): BioAuthSettings.BiometricStatus{
         val enabled = settings.isEnabled()
 
         if(getPublicKeyId() == null || getPublicKeyId()!!.isEmpty()) return BioAuthSettings.BiometricStatus.Disabled
@@ -62,15 +88,15 @@ class BioAuthManager private constructor( private val context: Context, private 
 
     }
 
-    fun enableFingerPrint(status: BioAuthSettings.BiometricStatus) {
+    override fun enableFingerPrint(status: BioAuthSettings.BiometricStatus) {
         settings.setBiometricStatus(status)
     }
 
-    fun savePublicKeyId(publicKeyId: String){
+    override fun savePublicKeyId(publicKeyId: String){
         settings.storePublicKeyId(publicKeyId)
     }
 
-    fun getPublicKeyId(): String? = settings.getPublicKeyId()
+    override fun getPublicKeyId(): String? = settings.getPublicKeyId()
 
     /**
      * Generates an asymmetric key pair in the Android Keystore. Every use of the private key must
@@ -102,7 +128,7 @@ class BioAuthManager private constructor( private val context: Context, private 
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
-    fun enroll(): PublicKeyPemResult{
+    override fun enroll(): PublicKeyPemResult{
         return try {
             createKeyPair()
             val publicKey = getPublicKey()
@@ -145,7 +171,7 @@ class BioAuthManager private constructor( private val context: Context, private 
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
-    fun signChallenge(challenge: SignableObject): SigningResult {
+    override fun signChallenge(challenge: SignableObject): SigningResult {
         val obj = cryptoObject
         return when(obj){
             is BioAuthManager.CryptoObjectResult.Error -> SigningResult.Error
@@ -173,9 +199,9 @@ class BioAuthManager private constructor( private val context: Context, private 
         return SignatureResult.Error(null);
     }
 
-    fun signature() = Signature.getInstance(_alg)
+    private fun signature() = Signature.getInstance(_alg)
 
-    fun startListening( callBack: FingerprintManagerCompat.AuthenticationCallback ) {
+    override fun startListening(callBack: FingerprintManagerCompat.AuthenticationCallback ) {
         if (!isFingerprintAuthAvailable()) {
             return
         }
@@ -189,7 +215,7 @@ class BioAuthManager private constructor( private val context: Context, private 
 
     }
 
-    fun stopListening() {
+    override fun stopListening() {
         if (cancellationSignal != null) {
             selfCancelled = true
             cancellationSignal?.cancel()
@@ -197,7 +223,7 @@ class BioAuthManager private constructor( private val context: Context, private 
         }
     }
 
-    fun getPublicKey(): PublicKeyResult {
+    override fun getPublicKey(): PublicKeyResult {
         var publicKey: PublicKey? = null
         return try {
             keyStore.load(null)
@@ -208,17 +234,17 @@ class BioAuthManager private constructor( private val context: Context, private 
         }
     }
 
-    fun isSupportedSDK(): Boolean {
+    override fun isSupportedSDK(): Boolean {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
     }
 
     class FingerprintKeyChangedException: Throwable()
 
-    fun checkSelfPermission(): Boolean {
+    override fun checkSelfPermission(): Boolean {
         return ActivityCompat.checkSelfPermission(context, Manifest.permission.USE_FINGERPRINT) == PackageManager.PERMISSION_GRANTED
     }
 
-    fun resetAll(){
+    override fun resetAll(){
         enableFingerPrint(status = BioAuthSettings.BiometricStatus.Unknown)
     }
 
