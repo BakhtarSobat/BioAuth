@@ -2,6 +2,7 @@ package com.bioauth.lib.manager
 
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.util.Base64
+import android.util.Log
 import java.security.KeyStoreException
 import java.security.Signature
 import java.security.SignatureException
@@ -20,6 +21,7 @@ abstract class SignableObject {
         } catch (e: KeyStoreException){
             BioAuthManager.SigningResult.BiometricKeyChanged
         } catch (e: SignatureException){
+            Log.e("Error",e.message, e)
             BioAuthManager.SigningResult.BiometricKeyChanged
         }
     }

@@ -8,18 +8,24 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.app.ActivityCompat
 import androidx.core.os.CancellationSignal
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentActivity
 import java.security.*
 import java.security.spec.ECGenParameterSpec
+import java.util.concurrent.Executor
 
 
 private const val ANDROID_KEY_STORE = "AndroidKeyStore"
 
 interface IBioAuthManager {
+    data class PromptData(val info: BiometricPrompt.PromptInfo, val executor: Executor, val fragment: Fragment?, val fragmentActivity: FragmentActivity?)
+
     fun isFingerEnabled(): BioAuthSettings.BiometricStatus
     fun enableFingerPrint(status: BioAuthSettings.BiometricStatus)
     fun savePublicKeyId(publicKeyId: String)
@@ -27,7 +33,7 @@ interface IBioAuthManager {
     fun enroll(): BioAuthManager.PublicKeyPemResult
     fun signChallenge(challenge: SignableObject): BioAuthManager.SigningResult
 
-    fun startListening(biometricPrompt: BiometricPrompt, info: BiometricPrompt.PromptInfo, callBack: BiometricPrompt.AuthenticationCallback)
+    fun promptBiometrics( promptData: IBioAuthManager.PromptData, callBack: IBioAuthManager.BiometricsPromptCallBack): Boolean
     fun stopListening()
     fun getPublicKey(): BioAuthManager.PublicKeyResult
     fun checkSelfPermission(): Boolean
@@ -40,6 +46,13 @@ interface IBioAuthManager {
         HARDWARE_UNAVAILABLE,
         NONE_ENROLLED,
         UNKNOWN
+
+    }
+
+    interface BiometricsPromptCallBack{
+        fun onAuthenticationError(errorCode: Int, errString: CharSequence)
+        fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult)
+        fun onAuthenticationFailed()
 
     }
 }
@@ -185,13 +198,44 @@ class BioAuthManager private constructor(private val context: Context, private v
 
     private fun signature() = Signature.getInstance(_alg)
 
-    override fun startListening(biometricPrompt: BiometricPrompt, info: BiometricPrompt.PromptInfo, callBack: BiometricPrompt.AuthenticationCallback ) {
+    override fun promptBiometrics( promptData: IBioAuthManager.PromptData, callBack: IBioAuthManager.BiometricsPromptCallBack): Boolean {
+        val authenticationCallback = object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationError(errorCode: Int,
+                                               errString: CharSequence) {
+                callBack.onAuthenticationError(errorCode, errString)
+                super.onAuthenticationError(errorCode, errString)
+            }
+
+            override fun onAuthenticationSucceeded(
+                result: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(result)
+                callBack.onAuthenticationSucceeded(result)
+            }
+
+            override fun onAuthenticationFailed() {
+                callBack.onAuthenticationFailed()
+                super.onAuthenticationFailed()
+            }
+        }
+
+        val biometricPrompt = if(promptData.fragment != null) {
+            BiometricPrompt(promptData.fragment, promptData.executor, authenticationCallback)
+        } else if(promptData.fragmentActivity != null){
+            BiometricPrompt(promptData.fragmentActivity, promptData.executor, authenticationCallback)
+        } else {
+            return false
+        }
+
         cancellationSignal = CancellationSignal()
         selfCancelled = false
-        val co = this.cryptoObject
-        when(co){
-            is BioAuthManager.CryptoObjectResult.Error -> callBack.onAuthenticationError(BiometricPrompt.ERROR_HW_UNAVAILABLE, "CryptoObject was not initialized")
-            is BioAuthManager.CryptoObjectResult.Result -> biometricPrompt.authenticate(info, co.cryptoObject)//fingerprintManager.authenticate(co.cryptoObject, 0, cancellationSignal, callBack, null)
+        return when(val co = this.cryptoObject){
+            is CryptoObjectResult.Error -> {
+                false
+            }
+            is CryptoObjectResult.Result -> {
+                biometricPrompt.authenticate(promptData.info, co.cryptoObject)
+                true
+            }
         }
 
     }

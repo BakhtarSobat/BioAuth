@@ -16,18 +16,13 @@ import androidx.fragment.app.Fragment
 import com.bioauth.lib.jwt.JwtObject
 import com.bioauth.lib.manager.BioAuthManager
 import com.bioauth.lib.manager.BioAuthSettings
+import com.bioauth.lib.manager.IBioAuthManager
 import com.bioauth.lib.manager.IBioAuthManager.AuthenticationTypes.SUCCESS
 import com.bioauth.sample.server.MyServer
 import java.util.*
-import java.util.concurrent.Executor
 
 private const val SALT = "SUPER_SALT"
 class LoginFragment: Fragment() {
-    private lateinit var executor: Executor
-    private lateinit var biometricPrompt: BiometricPrompt
-    private lateinit var promptInfo: BiometricPrompt.PromptInfo
-
-
 
     private val myServer by lazy { MyServer(requireContext()) }
     private val bioAuthManager: BioAuthManager by lazy{createBioAuthManager()}
@@ -62,44 +57,36 @@ class LoginFragment: Fragment() {
     }
 
     private fun showFingerprintDialog() {
-        executor = ContextCompat.getMainExecutor(requireContext())
-        biometricPrompt = BiometricPrompt(this, executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationError(errorCode: Int,
-                                                   errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    Toast.makeText(requireContext(),
-                        "Authentication error: $errString", Toast.LENGTH_SHORT)
-                        .show()
-                }
+        val executor = ContextCompat.getMainExecutor(requireContext())
 
-                override fun onAuthenticationSucceeded(
-                    result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    Toast.makeText(requireContext(),
-                        "Authentication succeeded!", Toast.LENGTH_SHORT)
-                        .show()
-                    checkingFingerprint()
-                }
 
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                    Toast.makeText(requireContext(), "Authentication failed",
-                        Toast.LENGTH_SHORT)
-                        .show()
-                }
-            })
-
-        promptInfo = BiometricPrompt.PromptInfo.Builder()
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Biometric login for my app")
             .setSubtitle("Log in using your biometric credential")
             .setNegativeButtonText("Use account password")
             .build()
 
-        // Prompt appears when user clicks "Log in".
-        // Consider integrating with the keystore to unlock cryptographic operations,
-        // if needed by your app.
-        biometricPrompt.authenticate(promptInfo)
+
+        val promptData = IBioAuthManager.PromptData(promptInfo, executor, this, null)
+        if(!bioAuthManager.promptBiometrics(promptData, object: IBioAuthManager.BiometricsPromptCallBack{
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    Toast.makeText(requireContext(), "Authentication error: $errString", Toast.LENGTH_SHORT).show()
+                }
+
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    Toast.makeText(requireContext(), "Authentication succeeded!", Toast.LENGTH_SHORT).show()
+                    checkingFingerprint()
+                }
+
+                override fun onAuthenticationFailed() {
+                    Toast.makeText(requireContext(), "Authentication failed", Toast.LENGTH_SHORT).show()
+                }
+
+            } )){
+            Toast.makeText(requireContext(), "Error, crypto object not initialized",
+                Toast.LENGTH_SHORT)
+                .show()
+        }
     }
 
     private fun checkingFingerprint() {
