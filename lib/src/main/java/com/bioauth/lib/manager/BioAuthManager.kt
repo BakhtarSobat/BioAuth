@@ -1,18 +1,18 @@
 package com.bioauth.lib.manager
 
 import android.Manifest
-import android.annotation.TargetApi
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
-import android.support.annotation.RequiresApi
-import android.support.v4.app.ActivityCompat
-import android.support.v4.hardware.fingerprint.FingerprintManagerCompat
-import android.support.v4.os.CancellationSignal
 import android.util.Base64
+import androidx.annotation.RequiresApi
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.app.ActivityCompat
+import androidx.core.os.CancellationSignal
 import java.security.*
 import java.security.spec.ECGenParameterSpec
 
@@ -20,29 +20,28 @@ import java.security.spec.ECGenParameterSpec
 private const val ANDROID_KEY_STORE = "AndroidKeyStore"
 
 interface IBioAuthManager {
-    @RequiresApi(Build.VERSION_CODES.M)
-    fun isHardwareDetected(): Boolean
-
-    @RequiresApi(Build.VERSION_CODES.M)
-    fun hasEnrolledFingerprints(): Boolean
-
-    fun isFingerprintAuthAvailable(): Boolean
     fun isFingerEnabled(): BioAuthSettings.BiometricStatus
     fun enableFingerPrint(status: BioAuthSettings.BiometricStatus)
     fun savePublicKeyId(publicKeyId: String)
     fun getPublicKeyId(): String?
-    @RequiresApi(Build.VERSION_CODES.M)
     fun enroll(): BioAuthManager.PublicKeyPemResult
-
-    @RequiresApi(Build.VERSION_CODES.M)
     fun signChallenge(challenge: SignableObject): BioAuthManager.SigningResult
 
-    fun startListening(callBack: FingerprintManagerCompat.AuthenticationCallback)
+    fun startListening(biometricPrompt: BiometricPrompt, info: BiometricPrompt.PromptInfo, callBack: BiometricPrompt.AuthenticationCallback)
     fun stopListening()
     fun getPublicKey(): BioAuthManager.PublicKeyResult
-    fun isSupportedSDK(): Boolean
     fun checkSelfPermission(): Boolean
     fun resetAll()
+    fun getBiometricsState(authenticators: Int): IBioAuthManager.AuthenticationTypes
+
+    enum class AuthenticationTypes{
+        SUCCESS,
+        NO_HARDWARE,
+        HARDWARE_UNAVAILABLE,
+        NONE_ENROLLED,
+        UNKNOWN
+
+    }
 }
 
 class BioAuthManager private constructor(private val context: Context, private val settings: BioAuthSettings) : IBioAuthManager {
@@ -53,31 +52,22 @@ class BioAuthManager private constructor(private val context: Context, private v
 
     private val keyGenerator by lazy { KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")}
 
-    private val fingerprintManager by lazy { FingerprintManagerCompat.from(context) }
+    private val fingerprintManager by lazy { BiometricManager.from(context) }
     private val keyStore: KeyStore by lazy { KeyStore.getInstance(ANDROID_KEY_STORE) }
     private var cancellationSignal: CancellationSignal? = null
     private var selfCancelled: Boolean = false
 
     private val cryptoObject  by lazy { initCryptoObject() }
 
-    @RequiresApi(Build.VERSION_CODES.M)
-    override fun isHardwareDetected(): Boolean {
-        return fingerprintManager.isHardwareDetected
-    }
-    @RequiresApi(Build.VERSION_CODES.M)
-    override fun hasEnrolledFingerprints(): Boolean {
-        return fingerprintManager.hasEnrolledFingerprints()
-    }
-
-
-    override fun isFingerprintAuthAvailable(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            isHardwareDetected() && hasEnrolledFingerprints()
-        } else {
-            return false
+    override fun getBiometricsState(authenticators: Int): IBioAuthManager.AuthenticationTypes{
+        return when (fingerprintManager.canAuthenticate(authenticators)) {
+            BiometricManager.BIOMETRIC_SUCCESS -> IBioAuthManager.AuthenticationTypes.SUCCESS
+            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> IBioAuthManager.AuthenticationTypes.NO_HARDWARE
+            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE ->IBioAuthManager.AuthenticationTypes.HARDWARE_UNAVAILABLE
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> IBioAuthManager.AuthenticationTypes.NONE_ENROLLED
+            else -> IBioAuthManager.AuthenticationTypes.UNKNOWN
         }
     }
-
 
     override fun isFingerEnabled(): BioAuthSettings.BiometricStatus{
         val enabled = settings.isEnabled()
@@ -102,7 +92,6 @@ class BioAuthManager private constructor(private val context: Context, private v
      * Generates an asymmetric key pair in the Android Keystore. Every use of the private key must
      * be authorized by the user authenticating with fingerprint. Public key use is unrestricted.
      */
-    @TargetApi(Build.VERSION_CODES.M)
     private fun createKeyPair(): Boolean {
         // The enrolling flow for fingerprint. This is where you ask the user to set up fingerprint
         // for your flow. Use of keys is necessary if you need to know if the set of
@@ -119,6 +108,7 @@ class BioAuthManager private constructor(private val context: Context, private v
                             // Require the user to authenticate with a fingerprint to authorize
                             // every use of the private key
                             .setUserAuthenticationRequired(true)
+                            .setInvalidatedByBiometricEnrollment(true)
                             .build())
             keyGenerator.generateKeyPair()
             return true
@@ -127,15 +117,12 @@ class BioAuthManager private constructor(private val context: Context, private v
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.M)
     override fun enroll(): PublicKeyPemResult{
         return try {
             createKeyPair()
-            val publicKey = getPublicKey()
-            when(publicKey){
-
-                is BioAuthManager.PublicKeyResult.Error -> PublicKeyPemResult.Error
-                is BioAuthManager.PublicKeyResult.Result -> PublicKeyPemResult.Result(publicKey.publicKey.toPEM())
+            when(val publicKey = getPublicKey()){
+                is PublicKeyResult.Error -> PublicKeyPemResult.Error
+                is PublicKeyResult.Result -> PublicKeyPemResult.Result(publicKey.publicKey.toPEM())
             }
         } catch (e: InvalidKeyException) {
             PublicKeyPemResult.Error
@@ -143,14 +130,11 @@ class BioAuthManager private constructor(private val context: Context, private v
     }
 
     private fun initCryptoObject(): CryptoObjectResult{
-        val signatureToSign: SignatureResult = if (isSupportedSDK()) {
-            initSignature()
-        } else {
-            SignatureResult.Error(null)
-        }
+        val signatureToSign: SignatureResult = initSignature()
+
         return when(signatureToSign){
             is SignatureResult.Result -> {
-                val cryptoObject = FingerprintManagerCompat.CryptoObject(signatureToSign.signature)
+                val cryptoObject = BiometricPrompt.CryptoObject(signatureToSign.signature)
                 CryptoObjectResult.Result(cryptoObject)
             }
             is SignatureResult.Error -> {
@@ -201,16 +185,13 @@ class BioAuthManager private constructor(private val context: Context, private v
 
     private fun signature() = Signature.getInstance(_alg)
 
-    override fun startListening(callBack: FingerprintManagerCompat.AuthenticationCallback ) {
-        if (!isFingerprintAuthAvailable()) {
-            return
-        }
+    override fun startListening(biometricPrompt: BiometricPrompt, info: BiometricPrompt.PromptInfo, callBack: BiometricPrompt.AuthenticationCallback ) {
         cancellationSignal = CancellationSignal()
         selfCancelled = false
         val co = this.cryptoObject
         when(co){
-            is BioAuthManager.CryptoObjectResult.Error -> callBack.onAuthenticationError(400, "CryptoObject was not initialized")
-            is BioAuthManager.CryptoObjectResult.Result -> fingerprintManager.authenticate(co.cryptoObject, 0, cancellationSignal, callBack, null)
+            is BioAuthManager.CryptoObjectResult.Error -> callBack.onAuthenticationError(BiometricPrompt.ERROR_HW_UNAVAILABLE, "CryptoObject was not initialized")
+            is BioAuthManager.CryptoObjectResult.Result -> biometricPrompt.authenticate(info, co.cryptoObject)//fingerprintManager.authenticate(co.cryptoObject, 0, cancellationSignal, callBack, null)
         }
 
     }
@@ -234,9 +215,6 @@ class BioAuthManager private constructor(private val context: Context, private v
         }
     }
 
-    override fun isSupportedSDK(): Boolean {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-    }
 
     class FingerprintKeyChangedException: Throwable()
 
@@ -250,7 +228,7 @@ class BioAuthManager private constructor(private val context: Context, private v
 
     sealed class CryptoObjectResult{
         class Error(val error: Throwable?): CryptoObjectResult()
-        class Result(val cryptoObject: FingerprintManagerCompat.CryptoObject): CryptoObjectResult()
+        class Result(val cryptoObject: BiometricPrompt.CryptoObject): CryptoObjectResult()
     }
     sealed class SignatureResult{
         class Error(val error: Throwable?): SignatureResult()

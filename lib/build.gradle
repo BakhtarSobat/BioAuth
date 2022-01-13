@@ -1,46 +1,39 @@
 buildscript {
     repositories {
-        jcenter()
+        mavenCentral()
+        maven {
+            url 'https://maven.fabric.io/public'
+        }
+        maven {
+            url 'https://maven.google.com/'
+            name 'Google'
+        }
+        maven { url 'https://jitpack.io' }
+        maven { url 'http://jcenter.bintray.com' }
+        //maven { url "https://oss.sonatype.org/content/repositories/snapshots" }
+        google()
     }
 }
 apply plugin: 'com.android.library'
 apply plugin: 'com.github.dcendents.android-maven'
 apply plugin: 'com.jfrog.bintray'
 apply plugin: 'kotlin-android'
+repositories {
+    mavenCentral()
+    maven { url 'https://maven.fabric.io/public' }
+    maven { url 'https://maven.google.com' }
+    maven { url "https://jitpack.io" }
 
 
-ext {
-    libraryVersion = '1.0.6'
-
-    bintrayRepo = 'maven'
-    bintrayName = 'bioauth'
-
-    publishedGroupId = 'com.bioauth.lib'
-    libraryName = 'BioAuth'
-    artifact = 'bioauth'
-
-    libraryDescription = 'Server-side authentication with Biometrics methods. This lib uses CRAM (challenge-response authentication mechanism)'
-
-    siteUrl = 'https://github.com/BakhtarSobat/BioAuth'
-    gitUrl = 'https://github.com/BakhtarSobat/BioAuth.git'
-
-
-    developerId = 'bsobat'
-    developerName = 'Bakhtar Sobat'
-    developerEmail = 'mbsobat@gmail.com'
-
-    licenseName = 'The Apache Software License, Version 2.0'
-    licenseUrl = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
-    allLicenses = ["Apache-2.0"]
 }
 android {
-    compileSdkVersion 28
+    compileSdkVersion 31
 
     defaultConfig {
-        minSdkVersion 21
-        targetSdkVersion 28
-        versionCode 1
-        versionName "1.0"
+        minSdkVersion 24
+        targetSdkVersion 31
+        versionCode 2
+        versionName "1.1"
     }
 
 }
@@ -48,9 +41,11 @@ android {
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation"org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-    implementation 'com.android.support:appcompat-v7:28.0.0'
+    implementation 'androidx.appcompat:appcompat:1.3.0'
     implementation "com.google.code.gson:gson:$gsonVerson"
-    testImplementation 'junit:junit:4.12'
+    testImplementation 'junit:junit:4.13.2'
+    implementation("androidx.biometric:biometric:1.1.0")
+
 
 }
 
@@ -137,4 +132,6 @@ bintray {
         }
     }
 }
+apply from: 'maven-push.gradle'
+
 

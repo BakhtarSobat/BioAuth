@@ -1,7 +1,7 @@
 package com.bioauth.lib.jwt
 import android.os.Build
 import android.security.keystore.KeyPermanentlyInvalidatedException
-import android.support.annotation.RequiresApi
+import androidx.annotation.RequiresApi
 import android.util.Base64
 import com.bioauth.lib.manager.BioAuthManager
 import com.bioauth.lib.manager.SignableObject

@@ -1,25 +1,62 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
-    ext.kotlin_version = '1.2.50'
+    ext.kotlin_version = '1.6.0'
+    ext.android_plugin_version = '4.2.1'
     repositories {
+        mavenCentral()
+        maven {
+            url 'https://maven.fabric.io/public'
+        }
+        maven {
+            url 'https://maven.google.com/'
+            name 'Google'
+        }
+        maven { url 'https://jitpack.io' }
+        maven { url 'http://jcenter.bintray.com' }
+        //maven { url "https://oss.sonatype.org/content/repositories/snapshots" }
         google()
-        jcenter()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:3.1.4'
+        classpath 'com.android.tools.build:gradle:4.2.2'
+        classpath "com.android.tools.build:gradle:$android_plugin_version"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+
         classpath 'com.github.dcendents:android-maven-gradle-plugin:1.4.1'
         classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.7.3'
     }
 }
 ext {
     gsonVerson = '2.8.0'
+
+    libraryVersion = '1.0.6'
+    publishedGroupId = 'com.bioauth.lib'
+    libraryName = 'BioAuth'
+    artifact = 'bioauth'
+
+    packing='aar'
+
+    bintrayRepo = 'maven'
+    bintrayName = 'bioauth'
+
+    libraryDescription = 'Server-side authentication with Biometrics methods. This lib uses CRAM (challenge-response authentication mechanism)'
+
+    siteUrl = 'https://github.com/BakhtarSobat/BioAuth'
+    gitUrl = 'https://github.com/BakhtarSobat/BioAuth.git'
+
+
+    developerId = 'bsobat'
+    developerName = 'Bakhtar Sobat'
+    developerEmail = 'mbsobat@gmail.com'
+
+    licenseName = 'The Apache Software License, Version 2.0'
+    licenseUrl = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+    allLicenses = ["Apache-2.0"]
 }
 allprojects {
     repositories {
         google()
-        jcenter()
+        maven { url 'https://maven.google.com' }
     }
 }
 

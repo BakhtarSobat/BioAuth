@@ -31,7 +31,7 @@ class MyServer(context: Context) {
         val publicKey = loadPublicKey()
         val data = "$serverChallenge$SALT$nonce"
         if(publicKey != null){
-            val verificationFunction = Signature.getInstance(CURVE_ALG)
+            val verificationFunction = Signature.getInstance("SHA256withECDSA")
             verificationFunction.initVerify(publicKey)
             verificationFunction.update(data.toByteArray())
             val respByte =  Base64.decode(response, Base64.NO_WRAP or Base64.URL_SAFE)

@@ -2,25 +2,28 @@ package com.bioauth.sample
 
 import android.os.Bundle
 import android.security.keystore.KeyProperties
-import android.support.v4.app.Fragment
+import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.biometric.BiometricManager
 import com.bioauth.lib.manager.BioAuthManager
 import com.bioauth.lib.manager.BioAuthSettings
+import com.bioauth.lib.manager.IBioAuthManager
+import com.bioauth.lib.manager.IBioAuthManager.AuthenticationTypes.*
 import com.bioauth.sample.server.MyServer
 import java.security.spec.ECGenParameterSpec
 
 class LoggedInFragment: Fragment() {
     private var listener: Listener? = null
     private val bioAuthManager by lazy { createBioAuthManager() }
-    private val myServer by lazy { MyServer(context!!) }
+    private val myServer by lazy { MyServer(requireContext()) }
 
     private fun createBioAuthManager(): BioAuthManager {
-        return BioAuthManager.Builder(context!!, MyBioAuthSettings(context!!)).build()
+        return BioAuthManager.Builder(requireContext(), MyBioAuthSettings(requireContext())).build()
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -30,11 +33,12 @@ class LoggedInFragment: Fragment() {
                 handleEnrollFingerprint()
                 updateText()
             }
-            this.isEnabled = bioAuthManager.run {
-                        isHardwareDetected() &&
-                        isFingerprintAuthAvailable() &&
-                        hasEnrolledFingerprints() &&
-                        isSupportedSDK()
+            this.isEnabled = when(bioAuthManager.getBiometricsState(BiometricManager.Authenticators.BIOMETRIC_STRONG)){
+                SUCCESS -> true
+                NO_HARDWARE -> false
+                HARDWARE_UNAVAILABLE -> false
+                NONE_ENROLLED -> true
+                UNKNOWN -> false
             }
             updateText()
 
@@ -44,16 +48,14 @@ class LoggedInFragment: Fragment() {
                 listener?.loggedOut()
             }
         }
-
-        val text = if (!bioAuthManager.isHardwareDetected()) {
-            "No Hardware"
-        } else if (!bioAuthManager.hasEnrolledFingerprints()) {
-            "Please enroll at least one fingerprint"
-        } else if (!bioAuthManager.isSupportedSDK()) {
-            "SDK not supported"
-        } else {
-            "Welcome"
+        val text = when(bioAuthManager.getBiometricsState(BiometricManager.Authenticators.BIOMETRIC_STRONG)){
+            SUCCESS -> "Welcome"
+            NO_HARDWARE -> "No Hardware"
+            HARDWARE_UNAVAILABLE -> "SDK not supported"
+            NONE_ENROLLED -> "Please enroll at least one fingerprint"
+            UNKNOWN -> "SDK not supported"
         }
+
         v.findViewById<TextView>(R.id.frag_logged_welcome).text = text
         return v
     }

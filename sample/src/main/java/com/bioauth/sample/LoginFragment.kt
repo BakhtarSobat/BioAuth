@@ -2,8 +2,6 @@ package com.bioauth.sample
 
 import android.os.Bundle
 import android.os.Handler
-import android.support.v4.app.Fragment
-import android.support.v4.hardware.fingerprint.FingerprintManagerCompat
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -11,15 +9,27 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
 import com.bioauth.lib.jwt.JwtObject
 import com.bioauth.lib.manager.BioAuthManager
 import com.bioauth.lib.manager.BioAuthSettings
+import com.bioauth.lib.manager.IBioAuthManager.AuthenticationTypes.SUCCESS
 import com.bioauth.sample.server.MyServer
 import java.util.*
+import java.util.concurrent.Executor
 
 private const val SALT = "SUPER_SALT"
 class LoginFragment: Fragment() {
-    private val myServer by lazy { MyServer(context!!) }
+    private lateinit var executor: Executor
+    private lateinit var biometricPrompt: BiometricPrompt
+    private lateinit var promptInfo: BiometricPrompt.PromptInfo
+
+
+
+    private val myServer by lazy { MyServer(requireContext()) }
     private val bioAuthManager: BioAuthManager by lazy{createBioAuthManager()}
     private var listener: Listener? = null
     private lateinit var fingerprintIcon: ImageView
@@ -33,41 +43,68 @@ class LoginFragment: Fragment() {
         }
         fingerprintIcon = v.findViewById<ImageView>(R.id.login_fingerprint)
         fingerprintLabel = v.findViewById<TextView>(R.id.login_fingerprint_label)
-        Handler().postDelayed({setupFingerprint()}, 500)
+        fingerprintIcon.setOnClickListener {
+            setupFingerprint()
+        }
+        setIcon()
         return v
     }
 
+    private fun setIcon(){
+        fingerprintIcon.visibility = when(bioAuthManager.getBiometricsState(BiometricManager.Authenticators.BIOMETRIC_STRONG)){
+            SUCCESS -> View.VISIBLE
+            else ->View.INVISIBLE
+        }
+    }
+
     private fun setupFingerprint() {
-        if (bioAuthManager.isFingerprintAuthAvailable() && bioAuthManager.isFingerEnabled() == BioAuthSettings.BiometricStatus.Enabled) {
-            fingerprintIcon?.visibility = View.VISIBLE
-            bioAuthManager.startListening(object : FingerprintManagerCompat.AuthenticationCallback() {
-                override fun onAuthenticationError(errMsgId: Int, errString: CharSequence) {
-                    fingerprintIcon?.setImageResource(R.drawable.ic_error)
-                    Toast.makeText(activity, errString, Toast.LENGTH_LONG).show()
+        showFingerprintDialog()
+    }
+
+    private fun showFingerprintDialog() {
+        executor = ContextCompat.getMainExecutor(requireContext())
+        biometricPrompt = BiometricPrompt(this, executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(errorCode: Int,
+                                                   errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    Toast.makeText(requireContext(),
+                        "Authentication error: $errString", Toast.LENGTH_SHORT)
+                        .show()
                 }
 
-                override fun onAuthenticationHelp(helpMsgId: Int, helpString: CharSequence) {
-
-                }
-
-                override fun onAuthenticationSucceeded(result: FingerprintManagerCompat.AuthenticationResult) {
+                override fun onAuthenticationSucceeded(
+                    result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    Toast.makeText(requireContext(),
+                        "Authentication succeeded!", Toast.LENGTH_SHORT)
+                        .show()
                     checkingFingerprint()
                 }
 
                 override fun onAuthenticationFailed() {
-                    fingerprintIcon?.setImageResource(R.drawable.ic_error)
-                    Toast.makeText(activity, "Fingerprint Authentication failed", Toast.LENGTH_LONG).show()
-
+                    super.onAuthenticationFailed()
+                    Toast.makeText(requireContext(), "Authentication failed",
+                        Toast.LENGTH_SHORT)
+                        .show()
                 }
             })
-        } else {
-            fingerprintIcon?.visibility = View.GONE
-        }
+
+        promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Biometric login for my app")
+            .setSubtitle("Log in using your biometric credential")
+            .setNegativeButtonText("Use account password")
+            .build()
+
+        // Prompt appears when user clicks "Log in".
+        // Consider integrating with the keystore to unlock cryptographic operations,
+        // if needed by your app.
+        biometricPrompt.authenticate(promptInfo)
     }
 
     private fun checkingFingerprint() {
-        fingerprintLabel?.text = "Authentication with the server..."
-        fingerprintIcon?.setImageResource(R.drawable.ic_check)
+        fingerprintLabel.text = "Authentication with the server..."
+        fingerprintIcon.setImageResource(R.drawable.ic_check)
         val challenge = myServer.getChallenge()
         val nonce = Random().nextInt(100)
         val stringToSign = "$challenge$SALT$nonce"
@@ -86,7 +123,7 @@ class LoginFragment: Fragment() {
                 if(verified){
                     Handler().postDelayed({listener?.loggedIn()}, 500)
                 } else {
-                    fingerprintIcon?.setImageResource(R.drawable.ic_error)
+                    fingerprintIcon.setImageResource(R.drawable.ic_error)
                     Toast.makeText(activity, "Unable to verify challenge", Toast.LENGTH_LONG).show()
                 }
             }
@@ -95,7 +132,7 @@ class LoginFragment: Fragment() {
 
     private fun checkingFingerprintJWT() {
         fingerprintLabel?.text = "Authentication with the server..."
-        fingerprintIcon?.setImageResource(R.drawable.ic_check)
+        fingerprintIcon.setImageResource(R.drawable.ic_check)
         val challenge = myServer.getChallenge()
         val jwt = JwtObject.createForEC256().apply {
             addClaim("jti", challenge)
@@ -115,7 +152,7 @@ class LoginFragment: Fragment() {
                 if(verified){
                     Handler().postDelayed({listener?.loggedIn()}, 500)
                 } else {
-                    fingerprintIcon?.setImageResource(R.drawable.ic_error)
+                    fingerprintIcon.setImageResource(R.drawable.ic_error)
                     Toast.makeText(activity, "Unable to verify challenge", Toast.LENGTH_LONG).show()
                 }
             }
@@ -123,7 +160,7 @@ class LoginFragment: Fragment() {
     }
 
     private fun createBioAuthManager(): BioAuthManager {
-        return BioAuthManager.Builder(context!!, MyBioAuthSettings(context!!)).build()
+        return BioAuthManager.Builder(requireContext(), MyBioAuthSettings(requireContext())).build()
     }
 
     private fun handleLogin(pin: String) {
