@@ -46,7 +46,7 @@ class LoginFragment: Fragment() {
     }
 
     private fun setIcon(){
-        fingerprintIcon.visibility = when(bioAuthManager.getBiometricsState(BiometricManager.Authenticators.BIOMETRIC_STRONG)){
+        fingerprintIcon.visibility = when(bioAuthManager.getBiometricsState()){
             SUCCESS -> View.VISIBLE
             else ->View.INVISIBLE
         }
@@ -64,6 +64,7 @@ class LoginFragment: Fragment() {
             .setTitle("Biometric login for my app")
             .setSubtitle("Log in using your biometric credential")
             .setNegativeButtonText("Use account password")
+            .setAllowedAuthenticators(bioAuthManager.getAuthenticator())
             .build()
 
 

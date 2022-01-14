@@ -171,8 +171,8 @@ class BioAuthManager private constructor(private val context: Context, private v
     override fun signChallenge(challenge: SignableObject): SigningResult {
         val obj = cryptoObject
         return when(obj){
-            is BioAuthManager.CryptoObjectResult.Error -> SigningResult.Error
-            is BioAuthManager.CryptoObjectResult.Result -> {
+            is CryptoObjectResult.Error -> SigningResult.Error
+            is CryptoObjectResult.Result -> {
                 val signature = obj.cryptoObject.signature?: return SigningResult.Error
                 return challenge.sign(signature)
             }
@@ -218,12 +218,16 @@ class BioAuthManager private constructor(private val context: Context, private v
             }
         }
 
-        val biometricPrompt = if(promptData.fragment != null) {
-            BiometricPrompt(promptData.fragment, promptData.executor, authenticationCallback)
-        } else if(promptData.fragmentActivity != null){
-            BiometricPrompt(promptData.fragmentActivity, promptData.executor, authenticationCallback)
-        } else {
-            return false
+        val biometricPrompt = when {
+            promptData.fragment != null -> {
+                BiometricPrompt(promptData.fragment, promptData.executor, authenticationCallback)
+            }
+            promptData.fragmentActivity != null -> {
+                BiometricPrompt(promptData.fragmentActivity, promptData.executor, authenticationCallback)
+            }
+            else -> {
+                return false
+            }
         }
 
         cancellationSignal = CancellationSignal()

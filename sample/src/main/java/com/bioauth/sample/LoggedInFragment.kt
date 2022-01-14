@@ -33,7 +33,7 @@ class LoggedInFragment: Fragment() {
                 handleEnrollFingerprint()
                 updateText()
             }
-            this.isEnabled = when(bioAuthManager.getBiometricsState(BiometricManager.Authenticators.BIOMETRIC_STRONG)){
+            this.isEnabled = when(bioAuthManager.getBiometricsState()){
                 SUCCESS -> true
                 NO_HARDWARE -> false
                 HARDWARE_UNAVAILABLE -> false
