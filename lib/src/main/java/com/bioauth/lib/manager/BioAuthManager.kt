@@ -1,331 +1,317 @@
 package com.bioauth.lib.manager
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
-import androidx.core.app.ActivityCompat
-import androidx.core.os.CancellationSignal
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.*
 import java.security.*
 import java.security.spec.ECGenParameterSpec
 import java.util.concurrent.Executor
-
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 private const val ANDROID_KEY_STORE = "AndroidKeyStore"
 
 interface IBioAuthManager {
-    data class PromptData(val info: BiometricPrompt.PromptInfo, val executor: Executor, val fragment: Fragment?, val fragmentActivity: FragmentActivity?)
+    sealed class SigningResult {
+        data class Success(val signature: String) : SigningResult()
+        data class Error(val message: String) : SigningResult()
+        data object BiometricKeyChanged : SigningResult()
+    }
 
-    fun isFingerEnabled(): BioAuthSettings.BiometricStatus
-    fun enableFingerPrint(status: BioAuthSettings.BiometricStatus)
-    fun savePublicKeyId(publicKeyId: String)
-    fun getPublicKeyId(): String?
-    fun enroll(): BioAuthManager.PublicKeyPemResult
-    fun signChallenge(challenge: SignableObject): BioAuthManager.SigningResult
+    data class PromptData(
+        val info: BiometricPrompt.PromptInfo,
+        val executor: Executor,
+        val fragment: Fragment?,
+        val fragmentActivity: FragmentActivity?
+    )
 
-    fun promptBiometrics( promptData: IBioAuthManager.PromptData, callBack: IBioAuthManager.BiometricsPromptCallBack): Boolean
+    suspend fun isFingerEnabled(): Result<BioAuthSettings.BiometricStatus>
+    suspend fun enableFingerPrint(status: BioAuthSettings.BiometricStatus): Result<Unit>
+    suspend fun enroll(): Result<String>
+    suspend fun promptBiometrics(promptData: PromptData, callback: BiometricsPromptCallback): Result<Boolean>
     fun stopListening()
-    fun getPublicKey(): BioAuthManager.PublicKeyResult
-    fun checkSelfPermission(): Boolean
+    suspend fun getPublicKey(): Result<PublicKey>
     fun resetAll()
-    fun getBiometricsState(authenticators: Int): IBioAuthManager.AuthenticationTypes
+    fun getBiometricsState(authenticators: Int): AuthenticationTypes
+    suspend fun promptBiometricsAndSign(
+        promptData: PromptData,
+        challenge: SignableObject,
+        callback: SigningCallback
+    ): Result<Boolean>
 
-    enum class AuthenticationTypes{
+    interface SigningCallback {
+        fun onSigningSuccess(signature: String)
+        fun onSigningError(errorCode: Int, message: String)
+    }
+    enum class AuthenticationTypes {
         SUCCESS,
         NO_HARDWARE,
         HARDWARE_UNAVAILABLE,
         NONE_ENROLLED,
         UNKNOWN
-
     }
 
-    interface BiometricsPromptCallBack{
+    interface BiometricsPromptCallback {
         fun onAuthenticationError(errorCode: Int, errString: CharSequence)
         fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult)
         fun onAuthenticationFailed()
-
     }
 }
 
-class BioAuthManager private constructor(private val context: Context, private val settings: BioAuthSettings) : IBioAuthManager {
-    private lateinit var _ecGenParameterSpec: ECGenParameterSpec
-    private lateinit var _digest: String
-    private lateinit var _alg: String
-    private lateinit var _keyStoreName: String
+class BioAuthManager private constructor(
+    private val context: Context,
+    private val settings: BioAuthSettings,
+    private val config: Config
+) : IBioAuthManager {
 
-    private val keyGenerator by lazy { KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")}
+    private val lock = ReentrantReadWriteLock()
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private val keyGenerator by lazy {
+        KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, ANDROID_KEY_STORE)
+    }
 
     private val fingerprintManager by lazy { BiometricManager.from(context) }
-    private val keyStore: KeyStore by lazy { KeyStore.getInstance(ANDROID_KEY_STORE) }
-    private var cancellationSignal: CancellationSignal? = null
-    private var selfCancelled: Boolean = false
 
-    private val cryptoObject  by lazy { initCryptoObject() }
+    @Volatile
+    private var biometricPrompt: BiometricPrompt? = null
 
-    override fun getBiometricsState(authenticators: Int): IBioAuthManager.AuthenticationTypes{
+    data class Config(
+        val digest: String = KeyProperties.DIGEST_SHA256,
+        val algorithm: String = "SHA256withECDSA",
+        val keyStoreName: String = "bioauthKey",
+        val ecGenParameterSpec: ECGenParameterSpec = ECGenParameterSpec("secp256r1")
+    )
+
+    override fun getBiometricsState(authenticators: Int): IBioAuthManager.AuthenticationTypes {
         return when (fingerprintManager.canAuthenticate(authenticators)) {
             BiometricManager.BIOMETRIC_SUCCESS -> IBioAuthManager.AuthenticationTypes.SUCCESS
             BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> IBioAuthManager.AuthenticationTypes.NO_HARDWARE
-            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE ->IBioAuthManager.AuthenticationTypes.HARDWARE_UNAVAILABLE
+            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> IBioAuthManager.AuthenticationTypes.HARDWARE_UNAVAILABLE
             BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> IBioAuthManager.AuthenticationTypes.NONE_ENROLLED
             else -> IBioAuthManager.AuthenticationTypes.UNKNOWN
         }
     }
 
-    override fun isFingerEnabled(): BioAuthSettings.BiometricStatus{
-        val enabled = settings.isEnabled()
+    override suspend fun isFingerEnabled(): Result<BioAuthSettings.BiometricStatus> = withContext(Dispatchers.IO) {
+        runCatching {
+            lock.read {
+                val enabled = settings.isEnabled()
+                val publicKeyId = settings.getPublicKeyId()
 
-        if(getPublicKeyId() == null || getPublicKeyId()!!.isEmpty()) return BioAuthSettings.BiometricStatus.Disabled
-
-        return enabled
-
+                if (publicKeyId.isNullOrEmpty()) {
+                    BioAuthSettings.BiometricStatus.Disabled
+                } else {
+                    enabled
+                }
+            }
+        }
     }
 
-    override fun enableFingerPrint(status: BioAuthSettings.BiometricStatus) {
-        settings.setBiometricStatus(status)
+    override suspend fun enableFingerPrint(status: BioAuthSettings.BiometricStatus): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            lock.write {
+                settings.setBiometricStatus(status)
+            }
+        }
     }
 
-    override fun savePublicKeyId(publicKeyId: String){
-        settings.storePublicKeyId(publicKeyId)
-    }
+    private suspend fun createKeyPair(): Result<KeyPair> = withContext(Dispatchers.IO) {
+        runCatching {
+            KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
 
-    override fun getPublicKeyId(): String? = settings.getPublicKeyId()
+            val keyGenSpec = KeyGenParameterSpec.Builder(
+                config.keyStoreName,
+                KeyProperties.PURPOSE_SIGN
+            )
+                .setDigests(config.digest)
+                .setAlgorithmParameterSpec(config.ecGenParameterSpec)
+                .setUserAuthenticationRequired(true)
+                .setInvalidatedByBiometricEnrollment(true)
+                .build()
 
-    /**
-     * Generates an asymmetric key pair in the Android Keystore. Every use of the private key must
-     * be authorized by the user authenticating with fingerprint. Public key use is unrestricted.
-     */
-    private fun createKeyPair(): Boolean {
-        // The enrolling flow for fingerprint. This is where you ask the user to set up fingerprint
-        // for your flow. Use of keys is necessary if you need to know if the set of
-        // enrolled fingerprints has changed.
-        try {
-            keyStore.load(null)
-            // Set the alias of the entry in Android KeyStore where the key will appear
-            // and the constrains (purposes) in the constructor of the Builder
-            keyGenerator.initialize(
-                    KeyGenParameterSpec.Builder(_keyStoreName,
-                            KeyProperties.PURPOSE_SIGN)
-                            .setDigests(_digest)
-                            .setAlgorithmParameterSpec(_ecGenParameterSpec)
-                            // Require the user to authenticate with a fingerprint to authorize
-                            // every use of the private key
-                            .setUserAuthenticationRequired(true)
-                            .setInvalidatedByBiometricEnrollment(true)
-                            .build())
+            keyGenerator.initialize(keyGenSpec)
             keyGenerator.generateKeyPair()
-            return true
-        } catch (e: InvalidAlgorithmParameterException) {
-            return false
         }
     }
 
-    override fun enroll(): PublicKeyPemResult{
-        return try {
-            createKeyPair()
-            when(val publicKey = getPublicKey()){
-                is PublicKeyResult.Error -> PublicKeyPemResult.Error
-                is PublicKeyResult.Result -> PublicKeyPemResult.Result(publicKey.publicKey.toPEM())
+    override suspend fun enroll(): Result<String> = withContext(Dispatchers.IO) {
+        createKeyPair().fold(
+            onSuccess = {
+                getPublicKey().fold(
+                    onSuccess = { publicKey -> Result.success(publicKey.toPEM()) },
+                    onFailure = { Result.failure(it) }
+                )
+            },
+            onFailure = { Result.failure(it) }
+        )
+    }
+
+    private suspend fun initCryptoObject(): Result<BiometricPrompt.CryptoObject> = withContext(Dispatchers.IO) {
+        initSignature().fold(
+            onSuccess = { signature -> Result.success(BiometricPrompt.CryptoObject(signature)) },
+            onFailure = { error ->
+                when (error) {
+                    is KeyPermanentlyInvalidatedException -> {
+                        enableFingerPrint(BioAuthSettings.BiometricStatus.Disabled)
+                        Result.failure(FingerprintKeyChangedException())
+                    }
+                    else -> Result.failure(error)
+                }
             }
-        } catch (e: InvalidKeyException) {
-            PublicKeyPemResult.Error
+        )
+    }
+
+    override suspend fun promptBiometricsAndSign(
+        promptData: IBioAuthManager.PromptData,
+        challenge: SignableObject,
+        callback: IBioAuthManager.SigningCallback
+    ): Result<Boolean> = withContext(Dispatchers.Main) {
+        runCatching {
+            val authenticationCallback = object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    callback.onSigningError(errorCode, errString.toString())
+                }
+
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    // Use the authenticated signature from the result
+                    result.cryptoObject?.signature?.let { authenticatedSignature ->
+                        scope.launch {
+                            when (val signingResult = challenge.sign(authenticatedSignature)) {
+                                is IBioAuthManager.SigningResult.Success -> {
+                                    callback.onSigningSuccess(signingResult.signature)
+                                }
+                                is IBioAuthManager.SigningResult.BiometricKeyChanged -> {
+                                    enableFingerPrint(BioAuthSettings.BiometricStatus.Disabled)
+                                    callback.onSigningError(-1, "Biometric key has changed")
+                                }
+                                is IBioAuthManager.SigningResult.Error -> {
+                                    callback.onSigningError(-1, signingResult.message)
+                                }
+                            }
+                        }
+                    } ?: run {
+                        callback.onSigningError(-1, "No authenticated signature available")
+                    }
+                }
+
+                override fun onAuthenticationFailed() {
+                    callback.onSigningError(-1, "Authentication failed")
+                }
+            }
+
+            biometricPrompt = when {
+                promptData.fragment != null ->
+                    BiometricPrompt(promptData.fragment, promptData.executor, authenticationCallback)
+                promptData.fragmentActivity != null ->
+                    BiometricPrompt(promptData.fragmentActivity, promptData.executor, authenticationCallback)
+                else -> throw IllegalArgumentException("Either fragment or fragmentActivity must be provided")
+            }
+
+            val cryptoObject = initCryptoObject().getOrThrow()
+            biometricPrompt?.authenticate(promptData.info, cryptoObject)
+            true
         }
     }
 
-    private fun initCryptoObject(): CryptoObjectResult{
-        val signatureToSign: SignatureResult = initSignature()
-
-        return when(signatureToSign){
-            is SignatureResult.Result -> {
-                val cryptoObject = BiometricPrompt.CryptoObject(signatureToSign.signature)
-                CryptoObjectResult.Result(cryptoObject)
-            }
-            is SignatureResult.Error -> {
-                handleIntCryptoObjectError(signatureToSign.error)
-            }
-        }
-    }
-
-    private fun handleIntCryptoObjectError(error: Throwable?): CryptoObjectResult {
-        return when(error){
-            is FingerprintKeyChangedException -> {
-                CryptoObjectResult.Error(error)
-            }
-            else -> {
-                CryptoObjectResult.Error(null)
-            }
-        }
-    }
-
-    @RequiresApi(Build.VERSION_CODES.M)
-    override fun signChallenge(challenge: SignableObject): SigningResult {
-        val obj = cryptoObject
-        return when(obj){
-            is CryptoObjectResult.Error -> SigningResult.Error
-            is CryptoObjectResult.Result -> {
-                val signature = obj.cryptoObject.signature?: return SigningResult.Error
-                return challenge.sign(signature)
-            }
-        }
-    }
-
-    @RequiresApi(Build.VERSION_CODES.M)
-    private fun initSignature(): SignatureResult {
-        try {
-            keyStore.load(null)
-            val key = keyStore.getKey(_keyStoreName, null) as PrivateKey?
-            val signature = signature()
+    private suspend fun initSignature(): Result<Signature> = withContext(Dispatchers.IO) {
+        runCatching {
+            val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
+            val key = keyStore.getKey(config.keyStoreName, null) as PrivateKey
+            val signature = Signature.getInstance(config.algorithm)
             signature.initSign(key)
-            return SignatureResult.Result(signature)
-        } catch (e: KeyPermanentlyInvalidatedException){
-            enableFingerPrint(BioAuthSettings.BiometricStatus.Disabled)
-            return SignatureResult.Error(FingerprintKeyChangedException())
-        } catch (e: Exception) {
-            enableFingerPrint(BioAuthSettings.BiometricStatus.Disabled)
+            signature
         }
-        return SignatureResult.Error(null);
     }
 
-    private fun signature() = Signature.getInstance(_alg)
+    override suspend fun promptBiometrics(
+        promptData: IBioAuthManager.PromptData,
+        callback: IBioAuthManager.BiometricsPromptCallback
+    ): Result<Boolean> = withContext(Dispatchers.Main) {
+        runCatching {
+            val authenticationCallback = object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    callback.onAuthenticationError(errorCode, errString)
+                }
 
-    override fun promptBiometrics( promptData: IBioAuthManager.PromptData, callBack: IBioAuthManager.BiometricsPromptCallBack): Boolean {
-        val authenticationCallback = object : BiometricPrompt.AuthenticationCallback() {
-            override fun onAuthenticationError(errorCode: Int,
-                                               errString: CharSequence) {
-                callBack.onAuthenticationError(errorCode, errString)
-                super.onAuthenticationError(errorCode, errString)
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    callback.onAuthenticationSucceeded(result)
+                }
+
+                override fun onAuthenticationFailed() {
+                    callback.onAuthenticationFailed()
+                }
             }
 
-            override fun onAuthenticationSucceeded(
-                result: BiometricPrompt.AuthenticationResult) {
-                super.onAuthenticationSucceeded(result)
-                callBack.onAuthenticationSucceeded(result)
+            biometricPrompt = when {
+                promptData.fragment != null ->
+                    BiometricPrompt(promptData.fragment, promptData.executor, authenticationCallback)
+                promptData.fragmentActivity != null ->
+                    BiometricPrompt(promptData.fragmentActivity, promptData.executor, authenticationCallback)
+                else -> throw IllegalArgumentException("Either fragment or fragmentActivity must be provided")
             }
 
-            override fun onAuthenticationFailed() {
-                callBack.onAuthenticationFailed()
-                super.onAuthenticationFailed()
-            }
+            val cryptoObject = initCryptoObject().getOrThrow()
+            biometricPrompt?.authenticate(promptData.info, cryptoObject)
+            true
         }
-
-        val biometricPrompt = when {
-            promptData.fragment != null -> {
-                BiometricPrompt(promptData.fragment, promptData.executor, authenticationCallback)
-            }
-            promptData.fragmentActivity != null -> {
-                BiometricPrompt(promptData.fragmentActivity, promptData.executor, authenticationCallback)
-            }
-            else -> {
-                return false
-            }
-        }
-
-        cancellationSignal = CancellationSignal()
-        selfCancelled = false
-        return when(val co = this.cryptoObject){
-            is CryptoObjectResult.Error -> {
-                false
-            }
-            is CryptoObjectResult.Result -> {
-                biometricPrompt.authenticate(promptData.info, co.cryptoObject)
-                true
-            }
-        }
-
     }
 
     override fun stopListening() {
-        if (cancellationSignal != null) {
-            selfCancelled = true
-            cancellationSignal?.cancel()
-            cancellationSignal = null
+        biometricPrompt = null
+    }
+
+    override suspend fun getPublicKey(): Result<PublicKey> = withContext(Dispatchers.IO) {
+        runCatching {
+            val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
+            keyStore.getCertificate(config.keyStoreName).publicKey
         }
     }
 
-    override fun getPublicKey(): PublicKeyResult {
-        var publicKey: PublicKey? = null
-        return try {
-            keyStore.load(null)
-            publicKey = keyStore.getCertificate(_keyStoreName).publicKey
-            PublicKeyResult.Result(publicKey)
-        } catch (e: Exception) {
-            PublicKeyResult.Error(e)
+    override fun resetAll() {
+        runBlocking {
+            enableFingerPrint(BioAuthSettings.BiometricStatus.Unknown)
         }
     }
 
 
-    class FingerprintKeyChangedException: Throwable()
+    class FingerprintKeyChangedException : Exception("Fingerprint key has been changed")
 
-    override fun checkSelfPermission(): Boolean {
-        return ActivityCompat.checkSelfPermission(context, Manifest.permission.USE_FINGERPRINT) == PackageManager.PERMISSION_GRANTED
-    }
+    class Builder(private val context: Context, private val settings: BioAuthSettings) {
+        private var config = Config()
 
-    override fun resetAll(){
-        enableFingerPrint(status = BioAuthSettings.BiometricStatus.Unknown)
-    }
+        fun withDigest(digest: String) = apply {
+            config = config.copy(digest = digest)
+        }
 
-    sealed class CryptoObjectResult{
-        class Error(val error: Throwable?): CryptoObjectResult()
-        class Result(val cryptoObject: BiometricPrompt.CryptoObject): CryptoObjectResult()
-    }
-    sealed class SignatureResult{
-        class Error(val error: Throwable?): SignatureResult()
-        class Result(val signature: Signature): SignatureResult()
-    }
-    sealed class SigningResult{
-        object BiometricKeyChanged: SigningResult()
-        object Error: SigningResult()
-        class Result(val signed: String): SigningResult()
-    }
-    sealed class PublicKeyResult{
-        class Error(val error: Throwable?): PublicKeyResult()
-        class Result(val publicKey: PublicKey): PublicKeyResult()
-    }
-    sealed class PublicKeyPemResult{
-        object Error: PublicKeyPemResult()
-        class Result(val publicKey: String): PublicKeyPemResult()
-    }
+        fun withAlgorithm(algorithm: String) = apply {
+            config = config.copy(algorithm = algorithm)
+        }
 
-    class Builder( private val context: Context, private val settings: BioAuthSettings){
-        private var digest  =  KeyProperties.DIGEST_SHA256
-        private var algorithm = "SHA256withECDSA"
-        private var keyStoreName = "bioauthKey"
-        private var ecGenParameterSpec = ECGenParameterSpec("secp256r1")
-        fun withDigest(digest: String): Builder{
-            this.digest = digest
-            return this
+        fun withKeyStoreName(name: String) = apply {
+            config = config.copy(keyStoreName = name)
         }
-        fun withAlgorithm(algorithm: String): Builder{
-            this.algorithm = algorithm
-            return this
-        }
-        fun withKeyStoreName(name: String): Builder{
-            keyStoreName = name
-            return this
-        }
-        fun withECGenParameterSpec(ecGenParam: ECGenParameterSpec): Builder{
-            ecGenParameterSpec = ecGenParam
-            return this
-        }
-        fun build() = BioAuthManager(context, settings).apply {
-            this._ecGenParameterSpec = ecGenParameterSpec
-            this._digest = digest
-            this._alg = algorithm
-            this._keyStoreName = keyStoreName
-        }
-    }
 
+        fun withECGenParameterSpec(ecGenParam: ECGenParameterSpec) = apply {
+            config = config.copy(ecGenParameterSpec = ecGenParam)
+        }
+
+        fun build() = BioAuthManager(context, settings, config)
+    }
 }
 
-private fun PublicKey.toPEM() = "-----BEGIN PUBLIC KEY-----\n${String(this.encoded.encodeBase64(), Charsets.US_ASCII)}\n-----END PUBLIC KEY-----"
-private fun ByteArray.encodeBase64(): ByteArray = Base64.encode(this, Base64.DEFAULT)
+private fun PublicKey.toPEM(): String {
+    val encodedKey = Base64.encodeToString(encoded, Base64.DEFAULT)
+    return "-----BEGIN PUBLIC KEY-----\n$encodedKey-----END PUBLIC KEY-----"
+}
+
+
+
