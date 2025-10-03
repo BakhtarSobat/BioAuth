@@ -18,8 +18,10 @@ abstract class SignableObject {
             val signed = Base64.encodeToString(signatureBytes, Base64.URL_SAFE or Base64.NO_WRAP)
             BiometricAuthenticationManager.SigningResult.Success(signed)
         } catch (e: KeyPermanentlyInvalidatedException) {
+            Log.e("SignableObject", "Key permanently invalidated: ${e.message}", e)
             BiometricAuthenticationManager.SigningResult.BiometricKeyChanged
         } catch (e: KeyStoreException) {
+            Log.e("SignableObject", "Key store error: ${e.message}", e)
             BiometricAuthenticationManager.SigningResult.BiometricKeyChanged
         } catch (e: SignatureException) {
             Log.e("SignableObject", "Signature error: ${e.message}", e)

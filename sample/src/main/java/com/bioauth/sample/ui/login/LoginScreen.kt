@@ -70,6 +70,10 @@ fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        Text(
+            text = "Login",
+            style = MaterialTheme.typography.headlineMedium
+        )
 
         PinSection(
             pintStatus = pinEnrolmentStatus,

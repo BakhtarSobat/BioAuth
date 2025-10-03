@@ -3,6 +3,7 @@ package com.bioauth.sample
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Base64
+import androidx.core.content.edit
 import com.bioauth.lib.manager.authentication.AuthenticationSettings
 import com.bioauth.lib.manager.authentication.EncryptedData
 
@@ -25,7 +26,7 @@ class MyPasswordAuthSettings(context: Context): AuthenticationSettings {
             AuthenticationSettings.EnrolmentStatus.Disabled -> "false"
             AuthenticationSettings.EnrolmentStatus.Unknown -> "-"
         }
-        prefs.edit().putString("PasswordAuthSettings.enabled", enabled).apply()
+        prefs.edit { putString("PasswordAuthSettings.enabled", enabled) }
     }
 
     // Add this constant with the others
@@ -38,9 +39,9 @@ class MyPasswordAuthSettings(context: Context): AuthenticationSettings {
 
 
     override fun storePublicKey(publicKeyBytes: ByteArray) {
-        val editor = prefs.edit()
-        editor.putString(PUBLIC_KEY_PREF, Base64.encodeToString(publicKeyBytes, Base64.DEFAULT))
-        editor.apply()
+        prefs.edit {
+            putString(PUBLIC_KEY_PREF, Base64.encodeToString(publicKeyBytes, Base64.DEFAULT))
+        }
     }
 
     override fun getPublicKey(): ByteArray? {
@@ -53,10 +54,9 @@ class MyPasswordAuthSettings(context: Context): AuthenticationSettings {
     }
 
     override fun clearPublicKey() {
-        val editor = prefs.edit()
-        editor.remove(PUBLIC_KEY_PREF)
-        editor.apply()
+        prefs.edit { remove(PUBLIC_KEY_PREF) }
     }
+
     override fun storePublicKeyId(publicKeyId: String) {
         //OK, we can store this in our local db
     }
@@ -68,12 +68,13 @@ class MyPasswordAuthSettings(context: Context): AuthenticationSettings {
 
 
     override fun storeEncryptedPrivateKey(encryptedData: EncryptedData) {
-        val editor = prefs.edit()
-        editor.putString(ENCRYPTED_KEY_PREF, Base64.encodeToString(encryptedData.encryptedKey, Base64.DEFAULT))
-        editor.putString(ENCRYPTED_IV_PREF, Base64.encodeToString(encryptedData.iv, Base64.DEFAULT))
-        editor.putString(ENCRYPTED_SALT_PREF, Base64.encodeToString(encryptedData.salt, Base64.DEFAULT))
-        editor.apply()
+        prefs.edit {
+            putString(ENCRYPTED_KEY_PREF, Base64.encodeToString(encryptedData.encryptedKey, Base64.DEFAULT))
+            putString(ENCRYPTED_IV_PREF, Base64.encodeToString(encryptedData.iv, Base64.DEFAULT))
+            putString(ENCRYPTED_SALT_PREF, Base64.encodeToString(encryptedData.salt, Base64.DEFAULT))
+        }
     }
+
 
     override fun getEncryptedPrivateKey(): EncryptedData? {
         val encryptedKeyString = prefs.getString(ENCRYPTED_KEY_PREF, null)
@@ -92,10 +93,10 @@ class MyPasswordAuthSettings(context: Context): AuthenticationSettings {
     }
 
     override fun clearEncryptedPrivateKey() {
-        val editor = prefs.edit()
-        editor.remove(ENCRYPTED_KEY_PREF)
-        editor.remove(ENCRYPTED_IV_PREF)
-        editor.remove(ENCRYPTED_SALT_PREF)
-        editor.apply()
+        prefs.edit {
+            remove(ENCRYPTED_KEY_PREF)
+            remove(ENCRYPTED_IV_PREF)
+            remove(ENCRYPTED_SALT_PREF)
+        }
     }
 }

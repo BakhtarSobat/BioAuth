@@ -35,6 +35,11 @@ fun LoggedInScreen(onLogout: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        Text(
+            text = "Profile",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
         PinEnrolmentSection(viewModel)
 
         Spacer(modifier = Modifier.height(16.dp))
