@@ -2,7 +2,6 @@ package com.bioauth.sample.ui
 
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.biometric.BiometricManager
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -13,7 +12,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
-import com.bioauth.lib.manager.authentication.biometrics.BiometricAuthenticationManager
 import com.bioauth.sample.ui.enrolment.LoggedInScreen
 import com.bioauth.sample.ui.login.LoginScreen
 
@@ -47,7 +45,3 @@ fun BioAuthApp() {
         )
     }
 }
-
-// Extension functions
-fun getAuthenticator() = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
-fun BiometricAuthenticationManager.getBiometricsState() = this.getBiometricsState(getAuthenticator())
