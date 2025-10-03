@@ -1,4 +1,4 @@
-package com.bioauth.sample.server
+package com.bioauth.sample.repository
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -12,23 +12,21 @@ import java.security.spec.X509EncodedKeySpec
 import java.util.*
 
 private const val SALT = "SUPER_SALT"
-private const val CURVE_ALG = "SHA256withECDSA"
 
-class MyServer(context: Context) {
+class AuthenticationRepository(context: Context) {
     private val serverChallenge by lazy { UUID.randomUUID().toString() }
     private var prefs: SharedPreferences = context.applicationContext.getSharedPreferences(
             "MyServer", Context.MODE_PRIVATE)
-    fun loginWithPin(pin: String) = "1234" == pin
 
-    fun enrollFingerprint(device: String, publicKey: String) {
-        prefs.edit().putString("publicKey", publicKey).apply()
+    fun enrolAuthenticationPublicKey(id: String, publicKey: String) {
+        prefs.edit().putString("publicKey_$id", publicKey).apply()
         Log.d("PublicKey", publicKey)
     }
 
     fun getChallenge() = serverChallenge
 
-    fun verify(response: String, nonce: Int): Boolean {
-        val publicKey = loadPublicKey()
+    fun verify(keyId: String, response: String, nonce: Int): Boolean {
+        val publicKey = loadBiometricPublicKey(keyId)
         val data = "$serverChallenge$SALT$nonce"
         if(publicKey != null){
             val verificationFunction = Signature.getInstance("SHA256withECDSA")
@@ -41,8 +39,8 @@ class MyServer(context: Context) {
         }
     }
 
-    private fun loadPublicKey(): PublicKey?{
-        var pk: String? = prefs.getString("publicKey", null)
+    private fun loadBiometricPublicKey(id: String): PublicKey?{
+        var pk: String? = prefs.getString("publicKey_$id", null)
         pk = pk?.replace("-----BEGIN PUBLIC KEY-----\n", "")
         pk = pk?.replace("-----END PUBLIC KEY-----", "")
         pk = pk?.replace("\n", "")

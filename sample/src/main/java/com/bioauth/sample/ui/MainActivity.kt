@@ -1,4 +1,4 @@
-package com.bioauth.sample
+package com.bioauth.sample.ui
 
 import android.os.Bundle
 import androidx.activity.compose.setContent
@@ -9,8 +9,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.biometric.BiometricManager
 import androidx.fragment.app.FragmentActivity
-import com.bioauth.lib.manager.BioAuthSettings
-import com.bioauth.lib.manager.IBioAuthManager
+import com.bioauth.lib.manager.authentication.AuthenticationSettings
+import com.bioauth.lib.manager.authentication.biometrics.BiometricAuthenticationManager
+import com.bioauth.sample.ui.enrolment.LoggedInScreen
+import com.bioauth.sample.ui.login.LoginScreen
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,21 +40,18 @@ fun BioAuthApp() {
         )
     } else {
         LoginScreen(
-            onLoginSuccess = { isLoggedIn = true }
+            onEnrol = { isLoggedIn = true }
         )
     }
 }
 
 // Extension functions
 fun getAuthenticator() = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
-fun IBioAuthManager.getBiometricsState() = this.getBiometricsState(getAuthenticator())
-fun IBioAuthManager.isFingerprintEnrolled() = this.getBiometricsState() == IBioAuthManager.AuthenticationTypes.SUCCESS
+fun BiometricAuthenticationManager.getBiometricsState() = this.getBiometricsState(getAuthenticator())
+fun BiometricAuthenticationManager.isFingerprintEnrolled() = this.getBiometricsState() == BiometricAuthenticationManager.AuthenticationTypes.SUCCESS
 
 // Convert to suspend function for proper coroutine handling
-suspend fun IBioAuthManager.isFingerprintReadyToUse(): Boolean {
+suspend fun BiometricAuthenticationManager.isFingerprintReadyToUse(): Boolean {
     return this.isFingerprintEnrolled() &&
-           this.isFingerEnabled().fold(
-               onSuccess = { it == BioAuthSettings.BiometricStatus.Enabled },
-               onFailure = { false }
-           )
+           this.getBiometricEnrolmentStatus() == AuthenticationSettings.EnrolmentStatus.Enabled
 }

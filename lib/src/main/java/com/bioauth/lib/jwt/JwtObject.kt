@@ -1,8 +1,8 @@
 package com.bioauth.lib.jwt
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.util.Base64
-import com.bioauth.lib.manager.IBioAuthManager
-import com.bioauth.lib.manager.SignableObject
+import com.bioauth.lib.manager.authentication.biometrics.BiometricAuthenticationManager
+import com.bioauth.lib.manager.authentication.SignableObject
 import com.google.gson.GsonBuilder
 import java.security.KeyStoreException
 import java.security.Signature
@@ -48,7 +48,7 @@ class JwtObject: SignableObject() {
         header[key] = value
     }
 
-    override fun sign(signature: Signature): IBioAuthManager.SigningResult {
+    override fun sign(signature: Signature): BiometricAuthenticationManager.SigningResult {
         val toSign  = getChallenge()
         return try {
             signature.update(toSign.toByteArray(Charsets.UTF_8))
@@ -56,13 +56,13 @@ class JwtObject: SignableObject() {
             val rsByteArrayLength = ECDSA.getSignatureByteArrayLength(this.header["alg"])
             val jwsSignature = ECDSA.transcodeSignatureToConcat(signatureBytes, rsByteArrayLength)
             val jwsSignedStr = jwsSignature.base64UrlEncode()
-            IBioAuthManager.SigningResult.Success("$toSign.$jwsSignedStr")
+            BiometricAuthenticationManager.SigningResult.Success("$toSign.$jwsSignedStr")
         } catch (e: KeyPermanentlyInvalidatedException){
-            IBioAuthManager.SigningResult.BiometricKeyChanged
+            BiometricAuthenticationManager.SigningResult.BiometricKeyChanged
         } catch (e: KeyStoreException){
-            IBioAuthManager.SigningResult.BiometricKeyChanged
+            BiometricAuthenticationManager.SigningResult.BiometricKeyChanged
         } catch (e: SignatureException){
-            IBioAuthManager.SigningResult.BiometricKeyChanged
+            BiometricAuthenticationManager.SigningResult.BiometricKeyChanged
         }
     }
 
