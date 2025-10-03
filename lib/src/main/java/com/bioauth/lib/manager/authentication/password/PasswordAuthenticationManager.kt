@@ -22,7 +22,6 @@ import java.security.Signature
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
-import javax.crypto.AEADBadTagException
 import javax.crypto.BadPaddingException
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
@@ -164,7 +163,7 @@ internal class PasswordAuthenticationManagerImpl(
                 }
             },
             onFailure = { error ->
-                if (error is BadPaddingException || error is AEADBadTagException) {
+                if (error is BadPaddingException) {
                     PasswordAuthenticationManager.SigningResult.Error("Invalid password")
                 } else {
                     PasswordAuthenticationManager.SigningResult.Error(error.message ?: "Signing failed")
